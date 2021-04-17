@@ -165,7 +165,7 @@ edx[which(edx$released==1915),] %>% summarize(movieId=movieId[1], title=title[1]
 ```{r released_count, echo=FALSE}
 edx %>% group_by(movieId) %>%
   summarize(n = n(), released = as.character(first(released))) %>%
-  ggplot(aes(released, n)) + geom_boxplot(color='red',fill='blue', alpha=0.2) +
+  ggplot(aes(released, n)) + geom_boxplot(color='orange',fill='blue', alpha=0.2) +
   scale_y_log10(breaks=c(1,10,100,200,500,1000,10000)) + scale_x_discrete(breaks=seq(1915,2005,5)) + 
   theme(axis.text.x = element_text(angle = 30, hjust = 1)) + labs(x='year released',y='count')
 ```
