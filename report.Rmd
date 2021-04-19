@@ -4,6 +4,7 @@ author: "Danilo Ferreira de Oliveira"
 date: "04/12/2021"
 output: 
   pdf_document:
+    highlight: tango
     latex_engine: xelatex
     number_sections: true
     toc: true
@@ -14,25 +15,20 @@ urlcolor: blue
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE) #fig.pos = 'h' fig.align = 'center' fig.cap
 knitr::opts_chunk$set(comment = '>>' )
+knitr::opts_chunk$set(tidy = TRUE)
 ```
 
 # Introduction
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+For this project, we will be creating a movie recommendation system using the MovieLens dataset. You can find the [entire latest MovieLens dataset here](https://grouplens.org/datasets/movielens/latest/). You will be creating your own recommendation system using all the tools we have shown you throughout the courses in this series. We will use the [10M version of the MovieLens dataset](https://grouplens.org/datasets/movielens/10m/) to make the computation a little easier.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+You will train a machine learning algorithm using the inputs in one subset to predict movie ratings in the validation set. 
 
-[Introduction to Data Science](https://rafalab.github.io/dsbook)
+Recommendation systems are more complicated machine learning challenges because each outcome has a different set of predictors. For example, different users rate a different number of movies and rate different movies. By evaluating the movies specific users like to watch, we can predict ratings they would give for movies they haven't seen, and then recommend them those with relatively high ratings.
 
-For this project, you will be creating a movie recommendation system using the MovieLens dataset. The version of movielens included in the dslabs package (which was used for some of the exercises in PH125.8x: Data Science: Machine Learning) is just a small subset of a much larger dataset with millions of ratings. You can find the [entire latest MovieLens dataset](https://grouplens.org/datasets/movielens/latest/)  here. You will be creating your own recommendation system using all the tools we have shown you throughout the courses in this series. We will use the [10M version of the MovieLens dataset](https://grouplens.org/datasets/movielens/10m/) to make the computation a little easier.
+We will firstly follow the approach made by Professor Rafael Irrizarry in [Introduction to Data Science](https://rafalab.github.io/dsbook), and continue it with the addition of genre effects, and a model that uses matrix factorization.
 
-Second, you will train a machine learning algorithm using the inputs in one subset to predict movie ratings in the validation set. 
-
-You will download the MovieLens data and run code we will provide to generate your datasets.
-
-Recommendation systems are more complicated machine learning challenges because each outcome has a different set of predictors. For example, different users rate a different number of movies and rate different movies.
-
-To compare different models or to see how well we’re doing compared to a baseline, we will use root mean squared error (RMSE) as our loss function. We can interpret RMSE similar to standard deviation.
+To compare different models or to see how well we are doing compared to a baseline, we will use root mean squared error (RMSE) as our loss function. We can interpret RMSE similar to standard deviation.
 
 # Analysis
 
@@ -53,6 +49,8 @@ if(!require(gridExtra)) install.packages("gridExtra", repos = "http://cran.us.r-
 if(!require(cowplot)) install.packages("cowplot", repos = "http://cran.us.r-project.org")
 ```
 
+ Before we can start gathering data, we will first load the R libraries we will need along all the report.
+
 ```{r libraries, warning=FALSE,message=FALSE}
 library(caret)     
 library(tidyverse) 
@@ -65,90 +63,152 @@ library(kableExtra)
 library(tibble)
 ```
 
-```{r load_edx, echo=FALSE}
-load('rda/edx.rda')
+Then, we download the MovieLens data and run code provided by HarvardX to generate the datasets for training and evaluating the final model. The `edx` set will be used all along the report to train and choose the best model for rating predictions, while the `validation` set will only be used at the end of to evaluate the quality of the final model with the root mean square error. 
+
+```{r getting_data}
+dl <- tempfile()
+download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+colnames(movies) <- c("movieId", "title", "genres")
+
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+
+movielens <- left_join(ratings, movies, by = "movieId")
 ```
 
-## Exploratory Data Analysis
+The validation set will be 10% of the MovieLens data obtained. We need to make sure the user and movie IDs in `validation` are also in `edx`, so we apply the `semi_join()` transformations. Then, we add rows removed from the validation set back into the training set. Lastly, we clean variables to recover RAM space.
+
+```{r creating_edx_validation, warning=FALSE, message=FALSE, results='hide'}
+set.seed(1, sample.kind="Rounding")
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+
+validation <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+removed <- anti_join(temp, validation)
+edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+```
+
+We can now start analyzing the dataframe `edx`.
+
+## Exploratory data analysis and visualization
 
 ### Exploring the variables
+
+Let's take a look at the columns in our dataset. 
 
 ```{r head_of_edx}
 edx %>% as_tibble() 
 ```
 
+It is possible to see that columns `title` and `genres` are of character class (`<chr>`), while `movieId` and `rating` are numeric (`<dbl>`), `userId` and `timestamp` are integers (`<int>`).
+
 We should analyze the quantity of unique values for each column variable. 
 
 ```{r summary_n_distinct}
 edx %>% summarize(n_userIds = n_distinct(userId), n_movieIds = n_distinct(movieId),
-                  n_titles = n_distinct(title), n_genrecomb = n_distinct(genres)) %>% 
-  kbl(booktabs = TRUE) %>% kable_styling(latex_options = c("striped", "hold_position"))
+                  n_titles = n_distinct(title), n_genres = n_distinct(genres)) %>% 
+  kbl(booktabs = TRUE, caption = "Distinct values for userId, movieId, titles and genres") %>% kable_styling(latex_options = c("striped", "hold_position"))
 ```
 
-Note that there is one more distinct `movieId` than `title`. We need to investigate why.
+Note that there more `movieId` unique variables than there are `title` ones. We need to investigate why.
 
 ```{r movies_with_multiple_Ids}
 edx %>% group_by(title) %>% summarize(n_movieIds = n_distinct(movieId)) %>% 
-  filter(n_movieIds > 1) %>% kbl(booktabs = TRUE) %>% 
+  filter(n_movieIds > 1) %>% kbl(booktabs = TRUE, caption = "Movies with more than one ID") %>% 
   kable_styling(latex_options = c("striped","hold_position"))
 ```
 
-So we found out that _War of the Worlds (2005)_ has two distinct `movieIds`. We then see how many reviews for each of them there are.
+So we find out that _War of the Worlds (2005)_ has two distinct `movieIds`. Let's see how many reviews for each of them there are.
 
 ```{r movieIds_for_WW2005, echo=FALSE}
 edx %>% filter(title=='War of the Worlds (2005)') %>% 
   group_by(movieId) %>% summarize(title=title[1], genres=genres[1], n=n()) %>%  # Count of reviews for each movieId
-  kbl(booktabs = TRUE) %>% kable_styling(latex_options = c("striped","hold_position"))
+  kbl(booktabs = TRUE, caption = "Different values of movieId and genres for \\textit{War of the Worlds (2005)}") %>% kable_styling(latex_options = c("striped","hold_position"))
 ```
 
+The second `movieId` has only 28 reviews to it. It is a low value and the validation set possibly has these two movieIds for the movie, so we won't meddle with it.
 
-### Visualizing the data
+### Ratings
 
-We can now visualize the data. Let's see how is configured the ratings distribution.
+We can now visualize the data. Let's see how the ratings distribution is configured.
 
-```{r ratings_distribution, echo=FALSE, fig.width=6, fig.height=3, fig.fullwidth=TRUE, fig.align='center'}
+```{r ratings_distribution, echo=FALSE, fig.height=3, fig.fullwidth=TRUE, fig.align='center', fig.cap = "Distribution of ratings"}
 edx %>% mutate(stars=ifelse(rating %in% c(1:5),'full','half')) %>% 
   ggplot(aes(factor(rating),fill=stars)) + geom_bar() + scale_fill_hue(c=80) + 
   labs(x='rating')
 ```
 
-So we see that full star ratings are more common than those with half stars, since 4, 3 and 5 are the most common ones.
+From the plot above, we can affirm that full star ratings are more common than those with half stars, since 4, 3 and 5 are the most frequent ones.
 
-```{r hist_count, echo=FALSE, fig.align='center', fig.height=3}
+### Movie and user IDs
+
+```{r hist_count, echo=FALSE, fig.align='center', fig.height=3, fig.cap= 'Frequency of reviews given by a specific user (left) and of reviews received by a specific movie (right)'}
 p1 <- edx %>% count(userId) %>% ggplot(aes(n)) + 
   geom_histogram(bins = 30, color = "black") + scale_x_log10() + 
-  labs(x='Reviews given by user') # Number of reviews from each user
+  labs(x='reviews given by user') # Number of reviews from each user
 
 p2 <- edx %>% count(movieId) %>% ggplot(aes(n)) + 
   geom_histogram(bins = 30, color = "black") + scale_x_log10() +
-  labs(x='Reviews received by movie',y='') # Number of reviews of each movie
+  labs(x='reviews received by movie',y='') # Number of reviews of each movie
 
 gridExtra::grid.arrange(p1, p2, ncol = 2)
 rm(p1,p2)
 ```
 
+The plots above show the frequency of quantities of reviews that each user gives and quantities of reviews each movie receives. Their x-axis are both on a logarithmic scale, and the one on the left is *rightly skewed*. If we analyze them, we can say that the majority of the users give from 20 to 200 reviews, while each movie frequently receive between 20 to a 1000 reviews, which is a pretty broad range.
 
+Plotting the histogram for average ratings, we get the plots below for both users and movies. It is possible to see that it is rare for a user to average rating movies below 2, since the top plot shows there are few users to the left of that number, only `r edx %>% group_by(userId) %>% summarize(avg=mean(rating)) %>% filter(avg< 2) %>% dim() %>% .[1]` of all `r edx %>% summarize(n_userIds = n_distinct(userId)) %>% .[1,1]` in the dataset, to be more exact. 
 
-```{r hist_avg_rating, echo=FALSE, fig.align='center', fig.height=3}
+```{r hist_avg_rating, echo=FALSE, fig.align='center', fig.height=3, fig.cap='Frequency of average rating a user gives (top) and average rating a movie receives (bottom)'}
 p1 <- edx %>% group_by(userId) %>% summarize(avg=mean(rating)) %>% 
   ggplot(aes(avg)) + geom_histogram(bins=35, color='black') +
-  labs(x='Average rating given by user') #average rating a user gives
-edx %>% group_by(userId) %>% summarize(avg=mean(rating)) %>% 
-  filter(avg< 1.5) %>% dim() %>% .[1] # Few users average giving ratings under 1.5
+  labs(x='average rating given by user') #average rating a user gives
 
 p2 <- edx %>% group_by(movieId) %>% summarize(avg=mean(rating)) %>% 
   ggplot(aes(avg)) + geom_histogram(bins=35, color='black') +
-  labs(x='Average rating received by movie') # Average rating received by a movie
-edx %>% group_by(movieId) %>% summarize(avg=mean(rating)) %>% 
-  filter(avg< 1.5) %>% dim() %>% .[1] # Few movies average less than 1.5
-edx %>% group_by(movieId) %>% summarize(avg=mean(rating)) %>% 
-  filter(avg> 4.25) %>% dim() %>% .[1] # Few movies average higher than 4.25
+  labs(x='average rating received by movie') # Average rating received by a movie
 
 cowplot::plot_grid(p1,p2,ncol=1, align='v')
 rm(p1,p2)
 ```
 
-Compute the number of ratings for each movie and then plot it against the year the movie came out using a boxplot for each year. Use the square root transformation on the y-axis (number of ratings) when creating your plot.
+From the `r edx %>% summarize(n_distinct(movieId)) %>% .[1,1] -1` movies, we can see that only `r edx %>% group_by(movieId) %>% summarize(avg=mean(rating)) %>% filter(avg< 1.5) %>% dim() %>% .[1]` of them average below 1.5, and `r edx %>% group_by(movieId) %>% summarize(avg=mean(rating)) %>% filter(avg> 4.25) %>% dim() %>% .[1]` films average over 4.25 rating.
+
+Let's now explore the top 10 most reviewed movies in the dataset and how many times they were reviewed.
+
+```{r unique_movies, echo=FALSE, fig.height=4, fig.fullwidth=TRUE, fig.align='center', fig.cap='Number of reviews for the top 10 most reviewed movies'}
+unique_movies <- edx %>% group_by(title) %>% 
+  summarize(title=title[1], genres=genres[1], count=n()) %>% arrange(desc(count))
+unique_movies[1:10,] %>% mutate(title = str_remove(title, ", The"),
+                                title = str_remove(title, " - A New Hope \\(a.k.a. Star Wars\\)")) %>% 
+  ggplot(aes(x=reorder(title, count), y=count)) + geom_bar(stat = "identity") + labs(x='') + coord_flip()
+```
+
+As we can see, the most reviewed movies are normally blockbusters, and they also have really high ratings. We can infer that the most times a movie is reviewed, the better its rating is. 
+
+```{r movies_ratings}
+edx %>% filter(title %in% head(unique_movies$title,n=10)) %>% group_by(title) %>% 
+  summarize(avg=mean(rating)) %>% arrange(desc(avg))
+```
+
+
+the title of the movies come along with the release date, inside parenthesis.
+
+### Release date
+
+Since there isn't a column for each movie's release date, We will check it by using the `str_extract` function from the `stringr` package.
 
 ```{r release_date}
 release_date <- edx$title %>% str_extract('\\([0-9]{4}\\)') %>%
@@ -156,46 +216,56 @@ release_date <- edx$title %>% str_extract('\\([0-9]{4}\\)') %>%
 summary(release_date)
 ```
 
+We first apply this function extracting the date along with the parenthesis, and then the number from inside them. We do it like this because by extracting only the number, movies like _2001: A Space Odyssey (1968)_ and _2001 Maniacs (2005)_ show up when searching for year 2001, for example. To go even further, it also extracts the numbers 1000 and 9000 for _House of 1000 Corpses (2003)_ and _Detroit 9000 (1973)_, respectively.
+
+Below we can see that the earliest release date in our dataset (1915) only has one movie:
 
 ```{r released_edx, echo=FALSE}
 edx <- data.frame(edx,released=release_date)
-edx[which(edx$released==1915),] %>% summarize(movieId=movieId[1], title=title[1], genres=genres[1], n=n()) %>% kbl(booktabs = TRUE, linesep = "") %>% kable_styling(latex_options = c("striped","hold_position"))
+edx[which(edx$released==1915),] %>% summarize(movieId=movieId[1], title=title[1], genres=genres[1], n=n()) %>% kbl(booktabs = TRUE, linesep = "", caption = "Movie with the earliest release date in the dataset") %>% kable_styling(latex_options = c("striped","hold_position"))
 ```
 
-```{r released_count, echo=FALSE}
+We now compute the number of ratings for each movie and then plot it against the year the movie came out, using a boxplot for each year. The logarithmic transformation is applied on the y-axis (number of ratings) when creating the plot.
+
+```{r released_count, echo=FALSE, fig.fullwidth=TRUE, fig.align='center', fig.height=4, fig.cap="Number of reviews the movies received versus the year they were released"}
 edx %>% group_by(movieId) %>%
   summarize(n = n(), released = as.character(first(released))) %>%
-  ggplot(aes(released, n)) + geom_boxplot(color='orange',fill='blue', alpha=0.2) +
+  ggplot(aes(released, n)) + geom_boxplot(fill= 'orange', color='#808080', alpha=0.2) +
   scale_y_log10(breaks=c(1,10,100,200,500,1000,10000)) + scale_x_discrete(breaks=seq(1915,2005,5)) + 
   theme(axis.text.x = element_text(angle = 30, hjust = 1)) + labs(x='year released',y='count')
 ```
 
-We see that, on average, movies that came out after 1993 get more ratings. We also see that with newer movies, starting in 1993, the number of ratings decreases with year: the more recent a movie is, the less time users have had to rate it.
+We see that, on average, movies that came out in the mid 90's get more ratings, reaching values over 30,000 reviews. We also see that with newer movies, starting near 1998, the number of ratings decreases with year: the more recent a movie is, the less time users have had to rate it.
 
-```{r released_avg_rating, echo=FALSE}
+Now we compute the average of ratings for each movie and plot it against the release year with boxplots, similarly to before.
+
+```{r released_avg_rating, echo=FALSE, fig.fullwidth=TRUE, fig.align='center', fig.height=4, fig.cap="Average rating the movies received versus the year they were released"}
 edx %>% group_by(movieId) %>%
   summarize(n = n(), released = as.character(first(released)), avg_rating=mean(rating)) %>%
-  ggplot(aes(released, avg_rating)) + geom_boxplot(color='orange', fill='blue', alpha=0.5) + scale_x_discrete(breaks=seq(1915,2005,5)) +
+  ggplot(aes(released, avg_rating)) + geom_boxplot(fill= 'orange', color='#808080', alpha=0.2) + scale_x_discrete(breaks=seq(1915,2005,5)) +
   theme(axis.text.x = element_text(angle = 30, hjust = 1)) + labs(x='year released', y='average rating')
 edx <- edx[,-ncol(edx),drop=FALSE]
 rm(release_date)
 ```
 
+It is possible to see that most movies released until 1973 normally range between 3.0 and 4.0 ratings. From then on, the range gets bigger and values get lower. The median value goes from averaging over 3.5 to near 3.25. There are even some movies from around the 2000's that average 0.5 ratings, but they are outliers and probably only received very few ratings.
 
-The genres contained in the dataset actually represent the combination of a series of unique genres. We count all the different genre combinations that appear in our dataset, arrange them in descending order for the number of reviews each. The table below show, as an example, the top 7 most reviewed genre combinations.
+### Genres and genre combinations
+
+The `genres` variable actually represents combinations of a series of unique genres. We will count the number of reviews for all different combinations that appear in our dataset and arrange them in descending order. The table below shows, as an example, the top 7 most reviewed genre combinations.
 
 ```{r genre_combinations, echo=FALSE}
 edx %>% group_by(genres) %>% summarize(count = n()) %>% arrange(desc(count)) %>% head(n=7) %>% 
-  data.frame(pos=c(1:7), .) %>% kbl(booktabs = TRUE, linesep = "") %>% kable_styling(latex_options = c("striped","hold_position"))
+  data.frame(rank=c(1:7), .) %>% kbl(booktabs = TRUE, linesep = "", caption = 'Top genre combinations rated') %>% kable_styling(latex_options = c("striped","hold_position"))
 ```
 
-Genre effect on the ratings
+Let's check the genre effect on ratings. We will filter for genre combinations that were reviewed over a thousand times, put them in ascending order of average rating and show 15 of them, equally distant inside the arranged dataframe. The indexes to select the genres in the arranged set are represented by the variable `gcomb_15`.
 
-```{r genre_effect, fig.fullwidth=TRUE, fig.align='center', fig.height=4}
-gcomb_20 <- c(1,seq(31,444,32),444) 
+```{r genre_effect, fig.fullwidth=TRUE, fig.align='center', fig.height=4, fig.cap="Distribution of average ratings for a few genre combinations possible"}
+gcomb_15 <- c(1,seq(31,415,32),444) 
 edx %>% group_by(genres) %>%
   summarize(n = n(), avg = mean(rating), se = sd(rating)/sqrt(n())) %>%     
-  filter(n > 1000) %>% arrange(desc(avg)) %>%  .[gcomb_20,] %>%
+  filter(n > 1000) %>% arrange(desc(avg)) %>%  .[gcomb_15,] %>%
   mutate(genres = reorder(genres, avg)) %>%
   ggplot(aes(x = genres, y = avg,
              ymin = avg - 2*se, ymax = avg + 2*se)) + geom_point() + 
@@ -203,10 +273,12 @@ edx %>% group_by(genres) %>%
   labs(x='', y= 'average rating')
 ```
 
+From the plot above, it is clear the effect genre combinations have on the rating, since they range from approximately 2.0 to over 4.5. Let's now see the effect of each genre separately.
+
 There are 20 different genres in this dataset, and they are the following:
 
 ```{r all_genres, echo=FALSE}
-rm(gcomb_20)
+rm(gcomb_15)
 genre_combinations <- unique(edx$genres)     # Unique genre combinations
 all_genres <- character()                    # Empty character vector
 for (i in genre_combinations) {
@@ -217,8 +289,10 @@ for (i in genre_combinations) {
 }
 all_genres <- unique(all_genres)             # Unique genres in the dataset
 rm(genre_combinations,movie_genres,i,j)
-matrix(all_genres, nrow = 5, ncol= 4) %>% kbl(booktabs = TRUE, linesep = "") %>% kable_styling(latex_options =c("striped","hold_position"))
+matrix(all_genres, nrow = 5, ncol= 4) %>% kbl(booktabs = TRUE, linesep = "", caption = 'All unique genres present in the dataset') %>% column_spec(1:4, width='8em') %>% kable_styling(latex_options =c("striped","hold_position"))
 ```
+
+We can count how many reviews each genre have had, by applying the following function:
 
 ```{r all_genres_count}
 all_genres_count <- sapply(all_genres, function(g) {
@@ -228,15 +302,17 @@ all_genres_count <- sapply(all_genres, function(g) {
 
 ```
 
+We can see the results on the table below. The genres range from near 4 million to only 7 reviews.    
+
 ```{r all_genres_count_div, echo=FALSE}
 all_genres_count_div <-data.frame(row.names(all_genres_count)[1:10], all_genres_count[1:10,],
                                   row.names(all_genres_count)[11:20], all_genres_count[11:20,]) # Dividing table in two for better placement in report
 colnames(all_genres_count_div) <- c('Genre','Count','Genre','Count')
-all_genres_count_div %>% kbl(booktabs = TRUE, linesep = "") %>% column_spec(1:4, width='8em') %>% kable_styling(latex_options =c("striped","hold_position")) %>% add_header_above(c("all_genres_count[1:10]" = 2, "all_genres_count[11:20]" = 2))
+all_genres_count_div %>% kbl(booktabs = TRUE, linesep = "", caption = 'Number of reviews per genre') %>% column_spec(1:4, width='9em') %>% kable_styling(latex_options =c("striped","hold_position")) %>% add_header_above(c("all_genres_count[1:10]" = 2, "all_genres_count[11:20]" = 2)) # all_genres_count[1:10]
  
 ```
 
-why is there one genre missing in the plot? Here's why
+We need to investigate the `(no genres listed)` genre, which actually represents no genre at all. We can see the movies that belong to it and their respective averages and standard errors:
 
 ```{r no_genres_listed}
 edx[which(edx$genres=='(no genres listed)'),] %>% 
@@ -244,8 +320,11 @@ edx[which(edx$genres=='(no genres listed)'),] %>%
             n = n(), avg = mean(rating), se = sd(rating)/sqrt(n()))
 ```
 
+There is only one movie in the dataset with no genres listed, and it has only 7 reviews, giving its average rating a high standard error (0.4185). For this reason, we won't be plotting this genre's average rating along with the others.
 
-```{r all_genres_avg_rating, echo=FALSE, fig.align='center', fig.width=6, fig.length=3.5}
+The plot below shows the average ratings for each unique genre, as they range from under 3.3 to over 4.0.
+
+```{r all_genres_avg_rating, echo=FALSE, fig.align='center', fig.width=6, fig.length=3.5, fig.cap='Average rating for each genre'}
 all_genres_avg <- matrix(nrow=20,ncol=2)
 i <- 1
 for (var in all_genres) {
@@ -264,9 +343,9 @@ rm(var,i,vals,all_genres_avg)
 ```
 
 
-We will then observe the top genres reviewed in this dataset, and how many reviews each one of them have. We accounted for the genres that were reviewed over a million times, resulting in 8 distinct possibilities.
+We now observe the top genres reviewed in this dataset, and how many reviews each one of them have. We accounted for the genres that were reviewed over a million times, resulting in 8 distinct possibilities. The reviews count for all genre has already been shown, but we will plot the count for the top 8 genres to better visualize it, and also compare its shape with the movie count plot for the top 8. 
 
-```{r top_genres_reviews, echo=FALSE, fig.width=6, fig.height=3, fig.fullwidth=TRUE, fig.align='center'}
+```{r top_genres_reviews, echo=FALSE, fig.width=6, fig.height=3, fig.fullwidth=TRUE, fig.align='center', fig.cap='Number of reviews for each of the top 8 most reviewed genres'}
 top_genres <- all_genres_count %>% filter(.>=1e6) # Genres with over 1 million reviews
 
 top_genres %>% ggplot(aes(x= row.names(.), y = review_count, fill=row.names(.))) +
@@ -274,19 +353,9 @@ top_genres %>% ggplot(aes(x= row.names(.), y = review_count, fill=row.names(.)))
   labs(x='', y='reviews count')
 ```
 
-Let's see the unique movies that are in the dataset, how many times they were reviewed, and the number of distinct movies for each of the 8 top genres that were determined previously.
+We now plot how many different movies where reviewed for each of the top 8 genres.
 
-```{r unique_movies, echo=FALSE, fig.height=4, fig.fullwidth=TRUE, fig.align='center'}
-unique_movies <- edx %>% group_by(title) %>% 
-  summarize(title=title[1], genres=genres[1], count=n()) %>% arrange(desc(count))
-unique_movies[1:10,] %>% mutate(title = str_remove(title, ", The"),
-                                title = str_remove(title, " - A New Hope \\(a.k.a. Star Wars\\)")) %>% 
-  ggplot(aes(x=reorder(title, count), y=count)) + geom_bar(stat = "identity") + labs(x='title') + coord_flip()
-```
-
-We now plot how many unique movies where reviewed for each of the top 8 genres.
-
-```{r movies_top_genre, echo=FALSE, fig.height=3, fig.fullwidth=TRUE, fig.align='center'}
+```{r movies_top_genre, echo=FALSE, fig.height=3, fig.fullwidth=TRUE, fig.align='center', fig.cap='Number of movies that belongs to the top 8 most reviewed genres'}
 movies_per_top_genre <- sapply(row.names(top_genres), function(g) {
   sum(str_detect(unique_movies$genres, g))
 })
@@ -297,31 +366,43 @@ data.frame(movies_per_top_genre) %>%
 rm(movies_per_top_genre,top_genres,unique_movies,all_genres_count)
 ```
 
-Turning timestamp into date and time
+The general shape and proportion of the bars pretty much look the same for both reviews and movie counts.   
 
-```{r timestamp_to_date, echo=FALSE}
+### Rating date
+
+Since `timestamp` doesn't really have any value for us as it is, we create from it another column that gives us the date and time a movie was rated.
+
+```{r timestamp_to_date}
 edx <- mutate(edx, date = as_datetime(timestamp))
-edx %>% as_tibble(.rows = 6)
+edx %>% as_tibble()
 ```
 
-Time effect on the dataset
+The new column `date` is of a Date-Time class (`<dttm>`) called POSIXct, and it clearly makes it better to understand the time of rating.
 
-```{r time_effect, message=FALSE, fig.height=3, fig.width=5, fig.align='center'}
+We can now plot the time effect on the dataset, showing the influence the week a movie was rated on the average value. Along with ratings, we plot a LOESS smooth line to better show the relationship between variables.
+
+```{r time_effect, message=FALSE, fig.height=4, fig.fullwidth=TRUE, fig.align='center', fig.cap='The review date effect on the average rating'}
 edx %>% mutate(date = round_date(date, unit = "week")) %>%
   group_by(date) %>%
   summarize(rating = mean(rating)) %>%
   ggplot(aes(date, rating)) +
-  geom_point() +
+  geom_point() + labs(y='average rating')
   geom_smooth()
 ```
 
+The review date definitely has some effect on ratings, but it isn't significant.
 
-## Feature Engineering
+## Feature engineering
 
+Down the line, we will need all genres available in the dataset as binary values, so it is necessary to create columns for all 20 of them and apply for each row the values correspoding for the character column value. here we see the first 6 rows, with only the movieId, title and genres of the movies, so we can compare the genres further in the analysis.
 
+```{r binary_genres_pre_creation, tidy=TRUE}
+edx[,c(2,5,6)] %>% as_tibble(.rows = 6)
+```
 
-```{r binary_genres}
+We apply the transformation by doing the following `for()` command. We will also permanently remove the timestamp, title, genres and date columns, since we won't be needing them to train the prediction models. 
 
+```{r binary_genres_columns, tidy=TRUE}
 for (var in all_genres) {
   edx <- edx %>% mutate(genre=ifelse(str_detect(genres,as.character(var)),1,0))
   colnames(edx)[ncol(edx)] <- as.character(var)
@@ -331,9 +412,11 @@ edx <- edx[,-(4:7),drop=FALSE]
 edx[,4:23] %>% as_tibble(.rows=6)
 ```
 
-
+Comparing each row in this tibble above with the ones right before, it is possible to see that the genres in the first one are represented as 1s in the other, while genres that don't appear before are kept as zero values. The transformation occurred accurately.
 
 ## Creating training and test sets
+
+Before training any model, we need to create a train and a test set. We first set the seed to guarantee the reproducibility of the model, and we divide the `edx` dataframe into a 80-20% partition.
 
 ```{r partitioning, warning=FALSE}
 set.seed(123, sample.kind = "Rounding")
@@ -346,6 +429,7 @@ train <- edx[-index,]
 rm(index,edx)
 ```
 
+To make sure the user and movie IDs in `test` are also in `train`, we apply the `semi_join()` function, just as we did in the beginning of the report for the first two datasets.
 
 ```{r test_semi_join}
 test <- test %>% 
@@ -353,7 +437,11 @@ test <- test %>%
   semi_join(train, by = "userId")
 ```
 
- If N is the number of user-movie combinations, yu,i is the rating for movie i by user u, and y^u,i is our prediction, then RMSE is defined as follows:  RMSE function 
+## Prediction models
+
+Now that we have our training and test sets, we can start evaluating prediction models. In this report, we will begin by following the book by Prof. Irrizarry, with the Naive RMSE, Movie Effect, Movie + User Effect and Regularized Movie + User Effects, but we will also apply a method that includes the Genre Effect and a Matrix Factorization one. And to evaluate their quality, we will use de RMSE function.
+
+ If N is the number of user-movie combinations, $y_{u,i}$ is the rating for movie i by user u, and $\hat{y}_{u,i}$ is our prediction, then RMSE is defined as follows: 
 
 $$
 RMSE = \sqrt{\frac{1}{N} \sum_{u,i}^{} \left( \hat{y}_{u,i} - y_{u,i} \right)^2 }
@@ -367,7 +455,7 @@ RMSE <- function(true_ratings, predicted_ratings){
 
 # Results
 
-## Prediction models
+## Testing different methods
 
 ### Naive RMSE
 
@@ -376,7 +464,8 @@ We start with a model that assumes the same rating for all movies and all users,
 $$
 Y_{u,i} = \mu + \varepsilon_{u,i}
 $$
-In this case, the least squares estimate of μ — the estimate that minimizes the root mean squared error — is the average rating of all movies across all users.
+
+In this case, the least squares estimate of $\mu$ — the estimate that minimizes the root mean squared error — is the average rating of all movies across all users.
 
 ```{r naive_rmse}
 mu <- mean(train$rating)
@@ -384,20 +473,20 @@ RMSE(test$rating, mu)
 ```
 
 ```{r naive_results, echo=FALSE}
-rmse_results <- tibble(method = "Just the Average", RMSE = RMSE(test$rating, mu))
-kbl(rmse_results, booktabs = TRUE) %>%  kable_styling(font_size = 8, latex_options = c("striped","hold_position"))
+rmse_results <- tibble(Method = "Just the Average", RMSE = RMSE(test$rating, mu))
+kbl(rmse_results, booktabs = TRUE, caption = 'RMSE result for the Average Method') %>%  kable_styling(latex_options = c("striped","hold_position"))
 ```
 
-### Movie Effects
+### Movie Effects Model
 
-We can improve our model by adding a term, bi, that represents the average rating for movie i
+We can improve our model by adding a term, $b_i$, that represents the average rating for movie i
 
 $$
 Y_{u,i} = \mu + b_i + \varepsilon_{u,i}
 $$
-bi  is the average of Yu,i minus the overall mean for each movie i.
+$b_i$  is the average of $Y_{u,i}$ minus the overall mean for each movie i.
 
-Note that because there are thousands of b's, the lm() function will be very slow or cause R to crash, so we don’t recommend using linear regression to calculate these effects.
+Note that because there are thousands of b's, the `lm()` function will be very slow or cause R to crash, so we don’t recommend using linear regression to calculate these effects.
 
 ```{r movie_effects}
 movie_avgs <- train %>% group_by(movieId) %>% summarize(b_i = mean(rating-mu))
@@ -414,16 +503,16 @@ summary(predicted_ratings)
 RMSE(test$rating, predicted_ratings)
 
 rmse_results <- bind_rows(rmse_results,
-                          tibble(method="Movie Effect Model",  
+                          tibble(Method="Movie Effect Model",  
                                  RMSE = RMSE(test$rating, predicted_ratings)))
-kbl(rmse_results, booktabs = TRUE) %>%  kable_styling(font_size = 8, latex_options = c("striped","hold_position"))
+kbl(rmse_results, booktabs = TRUE, caption = 'RMSE results with the Movie Effect Model') %>%  kable_styling(latex_options = c("striped","hold_position"))
 ```
 
 
 
-### Movie + User Effects
+### Movie + User Effects Model
 
-We can further improve our model by adding bu, the user-specific effect:
+We can further improve our model by adding $b_u$, the user-specific effect:
 
 $$ 
 Y_{u,i} = \mu + b_i + b_u + \varepsilon_{u,i}
@@ -448,15 +537,15 @@ sum(predicted_ratings>5)
 RMSE(test$rating, predicted_ratings)
 
 rmse_results <- bind_rows(rmse_results,
-                          tibble(method="Movie + User Effects Model",  
+                          tibble(Method="Movie + User Effects Model",  
                                  RMSE = RMSE(test$rating, predicted_ratings)))
-kbl(rmse_results, booktabs = TRUE) %>%  kable_styling(font_size = 8, latex_options = c("striped","hold_position"))
+kbl(rmse_results, booktabs = TRUE, caption = 'RMSE results with the Movie and User Effects Model') %>%  kable_styling(latex_options = c("striped","hold_position"))
 
 rm(predicted_ratings)
 ```
 
 
-### Movie + User + Genre Effects
+### Movie + User + Genre Effects Model
 
 $$
 Y_{u,i} = \mu + b_i + b_u + \sum_{k=1}^K x_{u,i} \beta_k + \varepsilon_{u,i}
@@ -487,7 +576,7 @@ rownames(df_beta) <- all_genres
 df_beta_div <-data.frame(row.names(df_beta)[1:10], df_beta[1:10,],
                          row.names(df_beta)[11:20], df_beta[11:20,]) # Dividing table in two for better placement in report
 colnames(df_beta_div) <- c('genre','beta_k','genre','beta_k')
-df_beta_div %>% kbl(booktabs = TRUE, linesep = "") %>% column_spec(1:4, width='8em') %>% kable_styling(latex_options = c("striped","hold_position")) %>% add_header_above(c("df_beta [1:10]" = 2, "df_beta [11:20]" = 2))
+df_beta_div %>% kbl(booktabs = TRUE, linesep = "", caption = 'Genre-specific beta values') %>% column_spec(1:4, width='8em') %>% kable_styling(latex_options = c("striped","hold_position")) %>% add_header_above(c("df_beta[1:10]" = 2, "df_beta[11:20]" = 2))
 ```
 
 beta equation
@@ -516,13 +605,13 @@ sum(predicted_ratings>5)
 RMSE(test$rating, predicted_ratings)
 
 rmse_results <- bind_rows(rmse_results,
-                          tibble(method="Movie + User + Genre Effects Model",  
+                          tibble(Method="Movie + User + Genre Effects Model",  
                                  RMSE = RMSE(test$rating, predicted_ratings)))
-kbl(rmse_results, booktabs = TRUE) %>%  kable_styling(font_size = 8, latex_options = c("striped","hold_position"))
+kbl(rmse_results, booktabs = TRUE, caption = 'RMSE results with the Movie, User and Genre Effects Model') %>%  kable_styling(latex_options = c("striped","hold_position"))
 rm(predicted_ratings)
 ```
 
-### Regularized Movie + User Effects
+### Regularized Movie + User Effects Model
 
 penalized least squares
 
@@ -538,7 +627,7 @@ $$
 \hat{b}_u(\lambda) = \frac{1}{\lambda + n_i} \sum_{u=1}^{n_i} \left(Y_{u,i} - \hat{b}_{i} - \hat{\mu}\right)
 $$
 
-```{r regularized_m_u_effects, fig.height=3, fig.width=5 , fig.align='center'}
+```{r regularized_m_u_effects, fig.height=3, fig.fullwidth=TRUE , fig.align='center', fig.cap='RMSE values per lambda'}
 train <- train %>% select(userId, movieId, rating)
 test <- test %>% select(userId, movieId, rating)
 
@@ -559,7 +648,7 @@ rmses <- sapply(lambdas, function(l){
     pull(pred)                                      
   return(RMSE(test$rating, predicted_ratings))
 })
-qplot(lambdas, rmses, xlab='lambda', ylab='RMSEs')
+qplot(lambdas, rmses, xlab='lambda', ylab='RMSE')
 ```
 
 optimal lambda is `r lambdas[which.min(rmses)]` and its corresponding RMSE is `r min(rmses)`.
@@ -570,10 +659,10 @@ min(rmses)                # Minimum RMSE
 
 rmse_results <- bind_rows(
   rmse_results,
-  tibble(method="Regularized Movie + User Effects Model",  
+  tibble(Method="Regularized Movie + User Effects Model",  
          RMSE = min(rmses)))
-kbl(rmse_results, booktabs = TRUE) %>%
-  kable_styling(font_size = 8, latex_options = c("striped","hold_position"))
+kbl(rmse_results, booktabs = TRUE, caption = 'RMSE results with the Regularized Movie and User Effects Model') %>%
+  kable_styling(latex_options = c("striped","hold_position"))
 
 rm(lambdas,rmses,mu) # Cleaning variables to recover RAM space
 ```
@@ -619,17 +708,17 @@ sum(predicted_ratings>5)
 RMSE(test_rating, predicted_ratings)
 
 rmse_results <- bind_rows(rmse_results,
-                          tibble(method="Matrix Factorization with SGD Model",  
+                          tibble(Method="Matrix Factorization Model",  
                                  RMSE = RMSE(test_rating, predicted_ratings)))
 
-kbl(rmse_results, booktabs = TRUE, linesep = "") %>%  
-  kable_styling(font_size = 8, latex_options = c("striped","hold_position"))
+kbl(rmse_results, booktabs = TRUE, linesep = "", caption = 'RMSE results with the Matrix Factorization Model') %>%  
+  kable_styling(latex_options = c("striped","hold_position"))
 
 rm(test_rating,predicted_ratings,params,test_dm)
 ```
 
 
-## Training with full edx dataset
+## Training with full edX dataset
 
 ```{r load_edx_and_validation, echo=FALSE}
 load('rda/edx.rda')
@@ -668,9 +757,10 @@ sum(predicted_ratings<0.5)
 sum(predicted_ratings>5)
 RMSE(validation_rating, predicted_ratings)
 
-rmse_validation <- tibble(method="Matrix Factorization with SGD Model",  
+rmse_validation <- tibble(Method="Matrix Factorization Model",  
                                  RMSE = RMSE(validation_rating, predicted_ratings))
-kbl(rmse_validation, booktabs = TRUE) %>%  kable_styling(font_size = 8, latex_options = c("striped","hold_position"))
+colnames(rmse_validation) <- c('Method','Validation RMSE')
+kbl(rmse_validation, booktabs = TRUE, caption = 'RMSE result for the validation set with Matrix Factorization Model') %>%  kable_styling(latex_options = c("striped","hold_position"))
 ```
 
 

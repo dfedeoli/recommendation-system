@@ -10,7 +10,7 @@ if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.
 if(!require(tibble)) install.packages("tibble", repos = "http://cran.us.r-project.org")
 if(!require(gridExtra)) install.packages("gridExtra", repos = "http://cran.us.r-project.org")
 if(!require(cowplot)) install.packages("cowplot", repos = "http://cran.us.r-project.org")
-
+if(!require(kableExtra)) install.packages("kableExtra", repos = "http://cran.us.r-project.org")
 
 #Loading required libraries
 library(caret)
@@ -22,8 +22,7 @@ library(stringr)
 library(recosystem)
 library(data.table)
 library(tibble)
-
-
+library(kableExtra)
 
 
 ## MovieLens 10M dataset:
