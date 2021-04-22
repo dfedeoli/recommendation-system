@@ -94,13 +94,16 @@ skim(edx)
 edx %>% summarize(n_userIds = n_distinct(userId),
           n_movieIds = n_distinct(movieId),
           n_titles = n_distinct(title),
-          n_genrecomb = n_distinct(genres))
+          n_genres = n_distinct(genres))
 
 
 # More movies than titles?
 edx %>% group_by(title) %>% 
   summarize(n_movieIds=n_distinct(movieId)) %>% 
   filter(n_movieIds>1)                              # Number of movies with more than 1 movieId
+
+
+# War of the Worlds (2005) has 2 distinct movieIds
 edx %>% filter(title=='War of the Worlds (2005)') %>% group_by(movieId) %>% 
   summarize(title=title[1], genres=genres[1],n=n()) # Count of reviews for each movieId
 
@@ -142,12 +145,39 @@ rm(p1,p2)
 ggsave('figs/avg_rating_histograms.png')
 
 
+# Unique Movies in the Dataset
+unique_movies <- edx %>% group_by(title) %>% 
+  summarize(title=title[1], genres=genres[1], count=n()) %>% arrange(desc(count))
+
+
+# Plotting the most rated movies 
+unique_movies[1:10,] %>% 
+  mutate(title = str_remove(title, ", The"),                 
+         title = str_remove(title, " - A New Hope \\(a.k.a. Star Wars\\)")) %>%  # Making titles smaller
+  ggplot(aes(x=reorder(title, count), y=count)) + 
+  geom_bar(stat = "identity") + labs(x='title') + coord_flip()
+ggsave('figs/unique_movies_count.png')
+
+
+# Plotting most rated movies average rating
+edx %>% filter(title %in% head(unique_movies$title,n=10)) %>% group_by(title) %>% 
+  summarize(avg=mean(rating), count=n()) %>% 
+  mutate(title = str_remove(title, ", The"),
+         title = str_remove(title, " - A New Hope \\(a.k.a. Star Wars\\)")) %>% 
+  ggplot(aes(x=reorder(title, count), y=avg)) + geom_bar(stat = "identity") + 
+  labs(x='',y='average rating') + coord_flip()
+ggsave('figs/unique_movies_avg.png')
+
+
 # Release date
 release_date <- edx$title %>% str_extract('\\([0-9]{4}\\)') %>%
   str_extract('[0-9]{4}') %>% as.integer()
 summary(release_date)
-edx <- data.frame(edx,released=release_date)
+edx <- data.frame(edx,released=release_date) # Adding released date column
 edx[which(edx$released==1915),] %>% summarize(title=title[1], n=n())
+
+
+# Reviews count by release date
 edx %>% group_by(movieId) %>%
   summarize(n = n(), released = as.character(first(released))) %>%
   qplot(released, n, data = ., geom = "boxplot") +
@@ -155,6 +185,8 @@ edx %>% group_by(movieId) %>%
   theme(axis.text.x = element_text(angle = 30, hjust = 1)) + labs(x='year released',y='count')
 ggsave('figs/release_date_review_count.png')
 
+
+# Average ratings by release date
 edx %>% group_by(movieId) %>%
   summarize(n = n(), released = as.character(first(released)), avg_rating=mean(rating)) %>%
   qplot(released, avg_rating, data = ., geom = "boxplot") + scale_x_discrete(breaks=seq(1915,2005,5)) +
@@ -164,19 +196,18 @@ edx <- edx[,-ncol(edx),drop=FALSE]
 rm(release_date)
 
 
-
 # Top genre combinations reviewed
 edx %>% group_by(genres) %>% summarize(count = n()) %>% arrange(desc(count)) %>% head(n=7) %>% 
   data.frame(pos=c(1:7), .)
 
 
 # Plotting the genre effect on ratings
-gcomb_20 <- c(1,seq(31,444,32),444) # Equally spaced indexes to select genre combinations
+gcomb_15 <- c(1,seq(31,415,32),444) # Equally spaced indexes to select genre combinations
 edx %>% group_by(genres) %>%
   summarize(n = n(), avg = mean(rating),
             se = sd(rating)/sqrt(n())) %>%     # Average ratings and respective errors
   filter(n > 1000) %>% arrange(desc(avg)) %>%  # Only genres that were reviewed over 1000 times
-  .[gcomb_20,] %>%
+  .[gcomb_15,] %>%
   mutate(genres = reorder(genres, avg)) %>%
   ggplot(aes(x = genres, y = avg,
              ymin = avg - 2*se, ymax = avg + 2*se)) +  # Plotting the values and errors
@@ -243,24 +274,6 @@ top_genres %>% ggplot(aes(x= row.names(.), y = review_count, fill=row.names(.)))
 ggsave('figs/reviews_top_genres.png')
 
 
-# Unique Movies in the Dataset
-unique_movies <- edx %>% group_by(title) %>% 
-  summarize(title=title[1], genres=genres[1], count=n()) %>% arrange(desc(count))
-
-
-# Plotting the most rated movies 
-unique_movies[1:10,] %>% 
-  mutate(title = str_remove(title, ", The"),                 
-         title = str_remove(title, " - A New Hope \\(a.k.a. Star Wars\\)")) %>%  # Making titles smaller
-  ggplot(aes(x=reorder(title, count), y=count)) + 
-  geom_bar(stat = "identity") + labs(x='title') + coord_flip()
-ggsave('figs/unique_movies_count.png')
-
-
-# Checking for the movie w/ 2 movieIds
-unique_movies[which(unique_movies$title=='War of the Worlds (2005)'),]
-
-
 # Number of movies reviewed per genre
 movies_per_top_genre <- sapply(row.names(top_genres), function(g) {
   sum(str_detect(unique_movies$genres, g))
@@ -302,9 +315,8 @@ for (var in all_genres) {
   edx <- edx %>% mutate(genre=ifelse(str_detect(genres,as.character(var)),1,0))
   colnames(edx)[ncol(edx)] <- as.character(var)
 }
-edx <- edx[,-c(4,5,7),drop=FALSE] # Dropping timestamp, title and date
-head(edx) # Checking the columns
-edx <- edx[,-4,drop=FALSE] # Dropping genre combinations
+head(edx[,-c(4,5,7)]) # Checking the columns
+edx <- edx[,-c(4:7),drop=FALSE] # Dropping timestamp, title and date
 rm(var)
 #-------------------------------------------------------------------------------
 
@@ -336,7 +348,7 @@ RMSE <- function(true_ratings, predicted_ratings){
 #-------------------------------------------------------------------------------
 
 
-## Naive RMSE
+## Naive RMSE/ Overall Average Rating 
 
 
 # Average rating of the training set (mu)

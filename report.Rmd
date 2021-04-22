@@ -20,7 +20,7 @@ knitr::opts_chunk$set(echo = TRUE, comment = '>>', tidy = TRUE) #, fig.pos = "!H
 
 # Introduction
 
-Companies like _Amazon_, _YouTube_ or _Netflix_ possess massive user ratings datasets, which they were able to collect from thousands of products sold to or used by customers. Recommendation systems use those ratings to make user-specific recommendations. With regard to movies, we can predict what rating a user  would give movie pictures they haven't seen by analyzing the ones he or she likes to watch, and then recommend those with relatively high predicted ratings. These are more complicated machine learning challenges because each outcome has a different set of predictors, seeing that different users rate different movies and different quantities of movies.
+Companies like _Amazon_, _YouTube_ or _Netflix_ possess massive user ratings datasets, which they were able to collect from thousands of products sold to or used by their customers. Recommendation systems use those ratings to make user-specific recommendations. With regard to movies, we can predict what rating a user  would give movie pictures they haven't seen by analyzing the ones he or she likes to watch, and then recommend those with relatively high predicted ratings. These are more complicated machine learning challenges because each outcome has a different set of predictors, seeing that different users rate different movies and different quantities of movies.
 
 _Netflix_ used to have a stars rating system (which now changed to a like-dislike system) and its recommendation algorithm would predict how many stars a particular user would give a specific movie. One star suggested the movie in question was not good, whereas five stars suggested it was an excellent one. In October 2006, _Netflix_ proposed the data science community a challenge which was to improve their algorithm by 10%. Inspired by that challenge, we will develop the foundations to a movie recommendation system. Since _Netflix_ data is not publicly available, we will use the _GroupLens_ research lab database, which you can find [here](https://grouplens.org/datasets/movielens/). We will be creating our own recommendation system using tools shown throughout all courses in the _HarvardX: Data Science Professional Certificate_ series, including _R Language_ for statistical computing and its most famous IDE, _RStudio_.
 
@@ -102,15 +102,13 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed)
 
 We can now start analyzing the `edx` dataframe.
 
-```{r, echo=FALSE}
+```{r load_edx_validation, echo=FALSE}
 load('rda/edx.rda')
 load('rda/validation.rda')
 ```
 
 
 ## Exploratory data analysis
-
-### Exploring the dataframe
 
 To begin, let's take a look at our dataset's columns and variables. 
 
@@ -159,7 +157,7 @@ edx %>% mutate(stars=ifelse(rating %in% c(1:5),'full','half')) %>%
 
 ### Movies and users
 
-Our dataset has 10,676 different movies and 69,878 different users. By multiplying these numbers, we can verify that not every user rated every movie. We can think of the dataset as a very large matrix, with users on the rows and movies on the columns, and many empty cells. The task of a recommendation system can be regarded as filling in the empty values in this matrix. Let's evaluate the frequency distribution of reviews that each user gives and each movie receives by plotting these values.
+Our dataset has 10,676 different movies and 69,878 different users. By multiplying these numbers, we can verify that not every user rated every movie. We can think of the dataset as a very large matrix that has users as its row variables, movies as its columns and ratings (or `NA` values) within its cells. The task of a recommendation system can be regarded as filling in the empty values in this matrix. Let's evaluate the frequency distribution of reviews that each user gives and each movie receives by plotting these values.
 
 ```{r hist_count, echo=FALSE, fig.align='center', fig.height=3, fig.cap= 'Frequency of reviews given by a specific user (left) and of reviews received by a specific movie (right)'}
 p1 <- edx %>% count(userId) %>% ggplot(aes(n)) + 
@@ -377,7 +375,7 @@ edx %>% as_tibble()
 
 The new column `date` is of a Date-Time class (`<dttm>`) called "POSIXct", and it makes it better to understand the time of rating. Now we can plot the time effect on the dataset, showing the possible influence time (in which a movie was rated) has on the average value. Along with average ratings, Figure 12 presents a _LOESS_ smooth line that better shows the relationship between variables.
 
-```{r time_effect, message=FALSE, fig.height=4, fig.fullwidth=TRUE, fig.align='center', fig.cap='The review date effect on the average rating'}
+```{r time_effect, message=FALSE, fig.height=4, fig.fullwidth=TRUE, fig.align='center', fig.cap='Review date effect on the average rating'}
 edx %>% mutate(date = round_date(date, unit = "week")) %>%
   group_by(date) %>%
   summarize(rating = mean(rating)) %>%
@@ -652,7 +650,7 @@ $$
 \hat{b}_u(\lambda) = \frac{1}{\lambda + n_u} \sum_{u=1}^{n_u} \left(Y_{u,i} - \hat{b}_{i} - \hat{\mu}\right)
 $$
 
-We first calculate various sets of predictions and their respective RMSE values by testing $\lambda$ varying from 0 to 10, with a 0.25 step-size, and then determine which regularization parameter gives us the lowest RMSE.
+We first calculate various sets of predictions and their respective RMSE values by testing $\lambda$'s from 0 to 10, with a 0.25 step-size, and then determine which regularization parameter gives us the lowest RMSE.
 
 ```{r regularized_m_u_effects, fig.height=3, fig.fullwidth=TRUE , fig.align='center', fig.cap='RMSE values per lambda'}
 train <- train %>% select(userId, movieId, rating)
@@ -713,7 +711,7 @@ Once more there is improvement, but not much. The approach we are taking seems t
 
 ### Matrix Factorization with _recosystem_ R package
 
-Some groups of movies, as well as some groups of users, have similar rating patterns. We can identify them by inspecting their correlations, which is basically what matrix factorization does. This family of methods, which is a class of collaborative filtering algorithms used in recommendation systems that became widely known during the _Netflix_ challenge, works by decomposing the (incomplete) user-movie interaction matrix into the product of two lower dimensionality rectangular matrices [@mf-rec-sys]. This incomplete matrix $R_{m×n}$, as mentioned in Section 2.2.3, is a matrix composed by rows that represent different users and columns, different movies; with each cell being an attributed rating (or the absence of one).
+Some groups of movies, as well as some groups of users, have similar rating patterns. We can identify them by inspecting their correlations, which is basically what matrix factorization does. This family of methods, which is a class of collaborative filtering algorithms used in recommendation systems that became widely known during the _Netflix_ challenge, works by decomposing the (incomplete) user-movie interaction matrix into the product of two lower dimensionality rectangular matrices [@mf-rec-sys]. This incomplete matrix $R_{m×n}$, as mentioned in Section 2.2.2, is composed by users on the rows and movies on the columns, with each cell being an attributed rating (or the absence of one).
 
 So we approximate the whole rating matrix $R_{m×n}$ by the product of two matrices of lower dimensions, $P_{k×m}$ and $Q_{k×n}$, as described above and written below [@recosys].
 
@@ -728,11 +726,11 @@ $$
 \min_{P,Q} \sum_{(u,i)∈R}[f(p_u,q_i;r_{u,i})+\mu_P||p_u||_1+\mu_Q||q_i||_1+\frac{\lambda_P}{2}||pu||^2_2+\frac{λ_Q}{2}||q_i||_2^2]
 $$
 
-where $(u,i)$ are locations of observed entries in $R$, $r_{u,i}$ is the observed rating, $f$ is the loss function, and $μ_P$, $μ_Q$, $λ_P$ and $λ_Q$ are, respectively, pairs of L1 and L2 regularization costs for P and Q during gradient descent, to avoid overtraining.
+where $(u,i)$ are locations of observed entries in $R$, $r_{u,i}$ is the observed rating, $f$ is the loss function, and $μ_P$, $μ_Q$, $λ_P$ and $λ_Q$ are, respectively, pairs of L1 and L2 regularization costs for both P and Q during gradient descent, to avoid overtraining.
 
-The _recosystem_ package easily performs this factorization. But to do it, we need to input a parse matrix in triplet form, meaning that each line in the file must contain three numbers: `user_index`, `item_index` and `rating`. User and item indexes may start with either 0 or 1, and this can be specified by the `index1` parameter in `data_memory()`. To train and predict, we need to provide objects of class `DataSource`, such as the previously mentioned `data_memory()`, which saves datasets as R objects.
+The _recosystem_ package easily performs this factorization. But to do it, we need to input a parse matrix in triplet form, meaning that each line in the file must contain three numbers: `user_index`, `item_index` and `rating` [@recosys]. User and item indexes may start with either 0 or 1, and this can be specified by the `index1` parameter in `data_memory()`. To train and predict, we need to provide objects of class `DataSource`, such as the previously mentioned `data_memory()`, which saves datasets as R objects.
 
-After determining the training and test sets, we define an R object with function `Reco()` and tune it to identify the best parameters possible for our dataset. We need to determine the number of latent factors ($k$ rows for $P_{k×m}$ and $Q_{k×n}$)  with parameter `dim`, L2 regularization costs for both P and Q with `costp_l2` and `costq_l2`, and learning rate for gradient descent `lrate`. The `loss` parameter has a default value of `l2`, so we maintain it and keep L1 costs as zero.
+After determining the training and test sets, we define an R object with function `Reco()` and tune it to identify the best parameters possible for our dataset. We need to determine the number of latent factors ($k$ rows for $P_{k×m}$ and $Q_{k×n}$)  with parameter `dim`, L2 regularization costs with `costp_l2` and `costq_l2`, and learning rate for gradient descent `lrate`. The `loss` parameter has a default value of `l2`, so we maintain it and keep L1 costs as zero.
 
 ```{r recosystem_training, warning=FALSE, message=FALSE, results='hide'}
 train_dm <- data_memory(user_index = train$userId, item_index = train$movieId,
@@ -758,7 +756,7 @@ optimal_params = params$min
 r$train(train_dm, opts = c(optimal_params, nthread = 1, niter = 20))
 ```
 
- From tuning, we obtained the optimal parameters `dim` = `r optimal_params[[1]]`, `costp_l1` = `r optimal_params[[2]]`, `costp_l2` = `r optimal_params[[3]]`, `costq_l1` = `r optimal_params[[4]]`, `costql2`=`r optimal_params[[5]]`, `lrate` = `r optimal_params[[6]]`, `loss_fun` = `r optimal_params[[7]]`. The model was then trained with these values, and it is now possible to predict ratings for the test set with `r$predict()`.
+ From tuning, we obtained optimal parameters `dim` = `r optimal_params[[1]]`, `costp_l1` = `r optimal_params[[2]]`, `costp_l2` = `r optimal_params[[3]]`, `costq_l1` = `r optimal_params[[4]]`, `costql2`=`r optimal_params[[5]]` and `lrate` = `r optimal_params[[6]]`. The model was then trained with these values, and it is now possible to predict ratings for the test set with `r$predict()`.
 
 ```{r predicting_MF, message=FALSE}
 predicted_ratings = r$predict(test_dm, out_memory()) 
@@ -779,13 +777,13 @@ kbl(rmse_results, booktabs = TRUE, linesep = "", caption = 'RMSE results with th
 rm(test_rating,predicted_ratings,params,test_dm)
 ```
 
-A much better result is obtained, so we choose this as our final model, for the final hold-out validation set and conclusion of this report.
+This model provides us a much better result, so we choose it to perform the final evaluation on the final hold-out set, `validation`, and finally conclude this report.
 
 # Results
 
 ## Training final model with full edx dataset
 
-To guarantee the final prediction model can be applied to the whole validation set, we will train with full `edx` set, in a similar way to the previous Section.
+To guarantee this final prediction model can be applied to the whole validation set, we will perform training with a full `edx` set, in the same way done in the previous Section. Once again, training will be performed with the optimal parameters defined by the tuning process.
 
 ```{r recosystem_edx, message=FALSE, results='hide'}
 train_dm <- data_memory(user_index = edx$userId, item_index = edx$movieId, 
@@ -797,7 +795,7 @@ r$train(train_dm, opts = c(optimal_params, nthread = 1, niter = 20))
 
 ## Final predicted ratings and RMSE
 
-Predicting ratings for the validation dataset, we get the following values:
+We finally predict ratings for the validation dataset, and get the following range of values:
 
 ```{r prediction_edx, message=FALSE}
 validation_dm <- data_memory(user_index = validation$userId,
@@ -810,7 +808,7 @@ rm(train_dm,validation)
 summary(predicted_ratings)
 ```
 
-where we perceive `r sum(predicted_ratings<0.5)` values under 0.5 rating and `r sum(predicted_ratings>5)` over 5.
+We perceive there are `r sum(predicted_ratings<0.5)` values under 0.5 rating and `r sum(predicted_ratings>5)` over 5 stars. But the real model evaluation happens with RMSE.
 
 ```{r results_validation, echo=FALSE}
 rmse_validation <- tibble(Method="Matrix Factorization Model",  
@@ -819,11 +817,13 @@ colnames(rmse_validation) <- c('Method','Validation RMSE')
 kbl(rmse_validation, booktabs = TRUE, caption = 'RMSE result for the validation set with Matrix Factorization Model') %>%  kable_styling(latex_options = c("striped","HOLD_position"))
 ```
 
-Table 15 provides us with the final RMSE, the Validation one, which gets to a value of `r RMSE(validation_rating, predicted_ratings)`. It is an excellent result, if compared to the other models in this report and also to the winning RMSE value in the _Netflix_ challenge, which was 0.8712 [@bellkor]. Even though that challenge utilized a different dataset, it is still remarkable. 
+Table 15 provides us the final RMSE, the Validation one, which reaches the value of `r RMSE(validation_rating, predicted_ratings)`. It is an excellent result, if compared to other models in this report and also to the winning RMSE value in the _Netflix_ challenge, which was 0.8712 [@bellkor]. Even though that challenge utilized a different dataset, it is still remarkable. 
 
 # Conclusion
 
-We visualized  the importance of variability between different movies and users, the genre  and genre combinations effect on ratings, and some effects not that significant (rating time effect). A lot of models were evaluated, the genre addition didn't have a great effect on the model so we didn't utilize it during the regularized modeling, and the best and easiest model to apply was Matrix Factorization with _recosystem_ R package.
+We began this report by obtaining the data and generating our dataframes, followed by visualizations of ratings distribution and rating variability between different movies and users. Genre and genre combinations also showed strong effects on ratings, while some attributes did not add significant value, such as the time of rating effect. 
 
-As future improvement, we can determine ceiling and roof limits for the predictions. That is: the predicted values we get that are under 0.5 stars or over 5, we transform them to limit the predictions to a range of 0.5 to 5, further improving our RMSE results. 
+A lot of models were evaluated, starting with simpler ones like the Overall Average Rating and Movie effects models. More complex models were evaluated, like Movie + User effects and specially Movie + User + Genre effects, but since it didn't have a great influence on the RMSE value, we didn't utilize it during the following regularized modeling. The penultimate and regularized model didn't improve much either. The best and easiest model applied was Matrix Factorization with _recosystem_ R package. From the third model, we had already reached the Netflix prize-winning RMSE, and by the end a value under 0.8 was reached.  
+
+As future improvement, we can determine ceiling and roof limits for the predictions. That is: we transform predicted values under 0.5 stars or over 5 into the limit values from the true range of 0.5 to 5, further improving our RMSE results. We can also tune the Matrix Factorization model with a wider range of values to further optimize it.
 
