@@ -2,7 +2,6 @@
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if(!require(ggplot2)) install.packages("ggplot2", repos = "http://cran.us.r-project.org")
-if(!require(skimr)) install.packages("skimr", repos = "http://cran.us.r-project.org")
 if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
 if(!require(stringr)) install.packages("stringr", repos = "http://cran.us.r-project.org")
 if(!require(recosystem)) install.packages("recosystem", repos = "http://cran.us.r-project.org")
@@ -16,7 +15,6 @@ if(!require(kableExtra)) install.packages("kableExtra", repos = "http://cran.us.
 library(caret)
 library(tidyverse)
 library(ggplot2)
-library(skimr)
 library(lubridate)
 library(stringr)
 library(recosystem)
@@ -83,11 +81,7 @@ save(validation, file = "rda/validation.rda")
 
 
 # Preview of the dataframe
-head(edx)
-
-
-# More detailed alternative to Summary function
-skim(edx)
+edx %>% as_tibble()
 
 
 # Number of distinct users and movies
@@ -237,9 +231,9 @@ all_genres_count
 
 
 # One genre with standard deviation too high (high variability, low number of ratings)
-edx[which(edx$genres=='(no genres listed)'),]
 edx[which(edx$genres=='(no genres listed)'),] %>% 
-  summarize(n = n(), avg = mean(rating), se = sd(rating)/sqrt(n()))
+  summarize(movieId=movieId[1], userId=userId[1], title=title[1], genres=genres[1], 
+            n = n(), avg = mean(rating), se = sd(rating)/sqrt(n()))
 
 
 # Unique genres average rating
@@ -491,6 +485,19 @@ ggsave('figs/lambdas_rmses.png')
 
 lambdas[which.min(rmses)] # Optimal lambda value
 min(rmses)                # Minimum RMSE
+
+
+#Optimal lambda value results
+b_i <- train %>% group_by(movieId) %>%
+  summarize(b_i = sum(rating - mu)/(n()+5)) #lambda = 5
+b_u <- train %>% left_join(b_i, by="movieId") %>% group_by(userId) %>%
+  summarize(b_u = sum(rating - b_i - mu)/(n()+5)) #lambda = 5 
+predicted_ratings <- test %>%
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  mutate(pred = mu + b_i + b_u) %>%
+  pull(pred)                                      
+summary(predicted_ratings)
 
 
 rm(lambdas,rmses,mu) # Cleaning variables to recover RAM space
