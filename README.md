@@ -5,7 +5,7 @@
 First Capstone Project for HarvardX: Data Science Professional Certificate, on edX's platform. 
 
  * **report.pdf -  Report in PDF format, obtained from knitted RMarkdown file;**
- * analysis.R - R Script file;
  * report.Rmd - RMarkdown file;
+ * analysis.R - R Script file;
  * bibliography.bib - BibTeX file;
  * figs/ - Figures from the Report.
