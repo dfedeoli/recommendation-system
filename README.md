@@ -2,9 +2,10 @@
 ([10M MovieLens Dataset](https://grouplens.org/datasets/movielens/10m/))
 
 
-First Capstone Project for HarvardX: Data Science Professional Certificate, on edX.
- 
- * analysis.R - Code file
- * report.Rmd - R Markdown file
- * report.pdf -  PDF file obtained from knitted R Markdown file
- * bibliography.bib - BibTeX file
+First Capstone Project for HarvardX: Data Science Professional Certificate, on edX's platform. 
+
+ * **report.pdf -  Report in PDF format, obtained from knitted RMarkdown file;**
+ * analysis.R - R Script file;
+ * report.Rmd - RMarkdown file;
+ * bibliography.bib - BibTeX file;
+ * figs/ - Figures from the Report.
