@@ -364,7 +364,7 @@ data.frame(movies_per_top_genre) %>%
 rm(movies_per_top_genre,top_genres,unique_movies,all_genres_count)
 ```
 
-Generally, the barplot's shapes and proportions look much the same for both review (Fig. 10) and movie counts (Fig. 11), with the exception of $Adventure$ and $Action$ having less movies than $Thriller$, even though they have more reviews. $Romance$ and $Thriller$ change positions from one plot to the other, but they are very close in proportion. Meanwhile, $Comedy$ and $Drama$ dominate in both counts.
+Generally, the barplot's shapes and proportions look much the same for both review (Fig. 10) and movie counts (Fig. 11), with the exception of $Action$ having less movies than $Romance$ and $Thriller$, even though it has more reviews. Both $Romance$ and $Thriller$ have very close proportions, but they change positions from one plot to the other. Meanwhile, $Comedy$ and $Drama$ dominate in both counts.
 
 ### Rating date
 
