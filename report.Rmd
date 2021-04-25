@@ -264,7 +264,7 @@ edx %>% group_by(genres) %>% summarize(count = n()) %>% arrange(desc(count)) %>%
   data.frame(rank=c(1:7), .) %>% kbl(booktabs = TRUE, linesep = "", caption = 'Top genre combinations rated') %>% kable_styling(latex_options = c("striped","HOLD_position"))
 ```
 
-Let's check the genre effect on ratings. We will filter for genre combinations that were reviewed over a thousand times, put them in ascending order of average rating and visualize 15 examples, equally distant inside the arranged dataframe. The indexes to select the combinations in the arranged set are represented by the variable `gcomb_15`.
+Let's check the genre effect on ratings. We will filter for genre combinations that were reviewed over a thousand times, put them in ascending order of average rating and visualize 15 examples, equally distant inside the arranged dataframe. The indexes to select combinations in the arranged set are represented by variable `gcomb_15`.
 
 ```{r genre_effect, fig.fullwidth=TRUE, fig.align='center', fig.height=4, fig.cap="Distribution for selected genre combinations' average ratings"}
 gcomb_15 <- c(1,seq(31,415,32),444) 
@@ -475,6 +475,11 @@ We can observe that this value is actually the standard deviation of this distri
 $$
 \mbox{RMSE}_{\mu} = \sqrt{\frac{1}{N}\sum_{u,i}^{N}(\mu-Y_{u,i})^2} = \sigma
 $$
+
+```{r sd_train}
+sd(train$rating)
+```
+
 
 ### Movie effect model
 
@@ -823,7 +828,7 @@ Table 15 provides us the final RMSE, which achieves the value of `r RMSE(validat
 
 # Conclusion
 
-We began this report with a brief introduction about recommendation systems, explaining how it works and its groundbreaking achievements. We then continued by obtaining the data and generating our dataframes, followed by important visualizations, such as the ratings distribution and its variability between different movies and users. Genre and genre combinations also showed strong effects on ratings, while some attributes did not add significant value, like the rating date effect. 
+We began this report with a brief introduction about recommendation systems, explaining how they work and their groundbreaking achievements. We then continued by obtaining the data and generating our dataframes, followed by important visualizations, such as the ratings distribution and its variability between different movies and users. Genre and genre combinations also showed strong effects on ratings, while some attributes did not add significant value, like the rating date effect. 
 
 The size of the utilized datasets affected and limited which algorithms we could use. Models like `caret` package's k-NN and linear regression methods would either crash R or run too slow. Yet, various machine learning models were evaluated, starting with simpler ones like the Overall Average Rating and Movie effects algorithms. More complex models were utilized, like Movie + User and, specially, Movie + User + Genre effects. Since the latter did not have a great influence on the RMSE value, we didn't use it during the following regularized modeling. Even penalization addition to Movie + User effects didn't improve much either. The best and easiest model applied was Matrix Factorization with the _recosystem_ R package. From the third model, we had already reached Netflix challenge's prize-winning RMSE, and by the end, a value under 0.8 was achieved.  
 
